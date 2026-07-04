@@ -6,6 +6,7 @@ from pathlib import Path
 from cuts.domain import BeatGrid, MotionWasteSegment, Shot, SpeechRegion, WordTimestamp
 from cuts.edl import AudioTrack, Caption, CaptionTrack, Timeline, TimelineClip
 from cuts.graph import Context, Node
+from cuts.vlm.models import SequencePlan
 
 
 @dataclass(slots=True)
@@ -28,6 +29,8 @@ class AssembleNode(Node):
 
     def assemble(self, context: Context) -> Timeline:
         decisions = self._select_segments(context)
+        if context.sequence_plan is not None:
+            decisions = self._limit_to_target_duration(decisions, context.target_duration)
         clips = [
             TimelineClip(
                 source_clip_id=decision.clip_id,
@@ -52,6 +55,8 @@ class AssembleNode(Node):
         )
 
     def _select_segments(self, context: Context) -> list[AssemblerDecision]:
+        if context.sequence_plan is not None:
+            return self._select_from_sequence_plan(context.sequence_plan)
         decisions: list[AssemblerDecision] = []
         target_duration = context.target_duration
         motion_by_clip = self._group_motion(context.motion_segments)
@@ -121,6 +126,52 @@ class AssembleNode(Node):
             total += duration
         if context.beat_grid is not None and selected:
             selected = self._snap_to_beats(selected, context.beat_grid)
+        return selected
+
+    def _select_from_sequence_plan(self, plan: SequencePlan) -> list[AssemblerDecision]:
+        decisions: list[AssemblerDecision] = []
+        for item in plan.ordered_shots:
+            if not item.keep:
+                continue
+            source_in = item.trim_in if item.trim_in is not None else item.shot_start
+            source_out = item.trim_out if item.trim_out is not None else item.shot_end
+            if source_out <= source_in:
+                continue
+            decisions.append(
+                AssemblerDecision(
+                    clip_id=item.clip_id,
+                    source_in=source_in,
+                    source_out=source_out,
+                    score=float(len(decisions)),
+                )
+            )
+        return decisions
+
+    def _limit_to_target_duration(
+        self, decisions: list[AssemblerDecision], target_duration: float | None
+    ) -> list[AssemblerDecision]:
+        if target_duration is None:
+            return decisions
+        selected: list[AssemblerDecision] = []
+        total = 0.0
+        for decision in decisions:
+            duration = decision.source_out - decision.source_in
+            if total + duration <= target_duration:
+                selected.append(decision)
+                total += duration
+                continue
+            remaining = target_duration - total
+            if remaining <= 0:
+                break
+            selected.append(
+                AssemblerDecision(
+                    clip_id=decision.clip_id,
+                    source_in=decision.source_in,
+                    source_out=decision.source_in + remaining,
+                    score=decision.score,
+                )
+            )
+            break
         return selected
 
     def _snap_to_beats(

@@ -16,6 +16,7 @@ from cuts.domain import (
     WordTimestamp,
 )
 from cuts.edl import Timeline
+from cuts.vlm.models import Platform, SequencePlan, ShotTags
 
 
 @dataclass(slots=True)
@@ -23,6 +24,8 @@ class Context:
     source_paths: tuple[Path, ...]
     music_path: Path | None = None
     target_duration: float | None = None
+    vibe_prompt: str = ""
+    platform: Platform = Platform.REELS
     whisper_model: str = "base"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
@@ -37,6 +40,8 @@ class Context:
     words: list[WordTimestamp] = field(default_factory=list)
     speech_regions: list[SpeechRegion] = field(default_factory=list)
     beat_grid: BeatGrid | None = None
+    shot_tags: list[ShotTags] = field(default_factory=list)
+    sequence_plan: SequencePlan | None = None
     timeline: Timeline | None = None
     warnings: list[str] = field(default_factory=list)
     extras: dict[str, object] = field(default_factory=dict)
@@ -72,6 +77,8 @@ class Pipeline:
             "source_paths",
             "music_path",
             "target_duration",
+            "vibe_prompt",
+            "platform",
             "whisper_model",
             "whisper_device",
             "whisper_compute_type",

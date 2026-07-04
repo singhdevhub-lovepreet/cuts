@@ -10,6 +10,7 @@ from cuts.nodes.assemble import AssembleNode
 from cuts.nodes.beats import BeatsNode
 from cuts.nodes.ingest import IngestNode
 from cuts.nodes.motion import MotionNode
+from cuts.nodes.reframe import ReframeNode
 from cuts.nodes.shots import ShotsNode
 from cuts.nodes.silence import SilenceNode
 from cuts.nodes.transcribe import TranscribeNode
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
                 SilenceNode(),
                 BeatsNode(),
                 AssembleNode(),
+                ReframeNode(),
             ]
         )
         context = pipeline.run(context)
@@ -97,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
                 SilenceNode(),
                 BeatsNode(),
                 AssembleNode(),
+                ReframeNode(),
             ]
         )
         context = pipeline.run(context)

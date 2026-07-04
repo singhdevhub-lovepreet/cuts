@@ -6,7 +6,7 @@ from hashlib import sha1
 from pathlib import Path
 from shlex import join as shell_join
 
-from cuts.edl import Caption, Timeline
+from cuts.edl import Caption, CropKeyframe, Timeline, TimelineClip
 
 
 @dataclass(slots=True)
@@ -68,11 +68,11 @@ class Renderer:
         for index, clip in enumerate(timeline.clips):
             video_label = f"v{index}"
             audio_label = f"a{index}"
-            # TODO: replace the center crop with subject-aware reframing.
+            crop_w_expr, crop_h_expr = self._crop_dimensions_expression(clip.crop_aspect)
+            crop_x_expr, crop_y_expr = self._crop_position_expression(clip)
             parts.append(
                 f"[{index}:v]trim=start={self._format_number(clip.source_in)}:end={self._format_number(clip.source_out)},"
-                f"setpts=PTS-STARTPTS,crop='if(gte(iw/ih,9/16),ih*9/16,iw)':"
-                f"'if(gte(iw/ih,9/16),ih,iw*16/9)':(iw-ow)/2:(ih-oh)/2,"
+                f"setpts=PTS-STARTPTS,crop='{crop_w_expr}':'{crop_h_expr}':{crop_x_expr}:{crop_y_expr},"
                 f"scale={timeline.target_width}:{timeline.target_height}:flags=lanczos,setsar=1[{video_label}]"
             )
             if clip.has_audio:
@@ -126,6 +126,47 @@ class Renderer:
                 f"[acatf]loudnorm=I={self._format_number(timeline.audio.normalize_lufs)}:TP=-1.5:LRA=11[aout]"
             )
         return ";".join(parts)
+
+    def _crop_dimensions_expression(self, crop_aspect: float) -> tuple[str, str]:
+        aspect = self._format_number(crop_aspect)
+        return (
+            f"if(gte(iw/ih,{aspect}),ih*{aspect},iw)",
+            f"if(gte(iw/ih,{aspect}),ih,iw/{aspect})",
+        )
+
+    def _crop_position_expression(self, clip: TimelineClip) -> tuple[str, str]:
+        if not clip.crop_path:
+            return "'(iw-ow)/2'", "'(ih-oh)/2'"
+        x_expr = self._normalized_position_expression(clip.crop_path, "center_x")
+        y_expr = self._normalized_position_expression(clip.crop_path, "center_y")
+        return (
+            f"'min(max(({x_expr})*iw-ow/2,0),iw-ow)'",
+            f"'min(max(({y_expr})*ih-oh/2,0),ih-oh)'",
+        )
+
+    def _normalized_position_expression(self, keyframes: list[CropKeyframe], attribute: str) -> str:
+        ordered = sorted(keyframes, key=lambda item: (item.t, item.center_x, item.center_y))
+        if len(ordered) == 1:
+            return self._format_number(self._keyframe_value(ordered[0], attribute))
+        tail = self._format_number(self._keyframe_value(ordered[-1], attribute))
+        expression = tail
+        for left, right in reversed(list(zip(ordered[:-1], ordered[1:], strict=True))):
+            left_value = self._format_number(self._keyframe_value(left, attribute))
+            right_value = self._format_number(self._keyframe_value(right, attribute))
+            duration = max(right.t - left.t, 1e-6)
+            interpolated = (
+                f"({left_value})+(({right_value})-({left_value}))*((t-{self._format_number(left.t)})/"
+                f"{self._format_number(duration)})"
+            )
+            expression = f"if(lte(t,{self._format_number(right.t)}),{interpolated},{expression})"
+        return expression
+
+    def _keyframe_value(self, keyframe: CropKeyframe, attribute: str) -> float:
+        if attribute == "center_x":
+            return keyframe.center_x
+        if attribute == "center_y":
+            return keyframe.center_y
+        raise ValueError(f"unknown crop attribute: {attribute}")
 
     def _write_subtitles(self, timeline: Timeline, work_dir: Path) -> Path | None:
         captions: list[Caption] = []

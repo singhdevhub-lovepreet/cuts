@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
 
 
 class Transition(BaseModel):
@@ -31,6 +31,8 @@ class TimelineClip(BaseModel):
     source_out: float
     transition: Transition = Field(default_factory=Transition)
     has_audio: bool = True
+    crop_aspect: float = 9.0 / 16.0
+    crop_path: list[CropKeyframe] = Field(default_factory=list)
 
     @field_validator("source_out")
     @classmethod
@@ -38,6 +40,28 @@ class TimelineClip(BaseModel):
         source_in = info.data.get("source_in")
         if source_in is not None and value <= source_in:
             raise ValueError("source_out must be greater than source_in")
+        return value
+
+
+class CropKeyframe(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    t: float
+    center_x: float
+    center_y: float
+
+    @field_validator("t")
+    @classmethod
+    def _time_non_negative(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("crop keyframe time must be non-negative")
+        return value
+
+    @field_validator("center_x", "center_y")
+    @classmethod
+    def _center_normalized(cls, value: float) -> float:
+        if not 0.0 <= value <= 1.0:
+            raise ValueError("crop keyframe centers must be normalized")
         return value
 
 
@@ -94,3 +118,7 @@ class Timeline(BaseModel):
     caption_tracks: list[CaptionTrack] = Field(default_factory=list)
     overlay_tracks: list[OverlayTrack] = Field(default_factory=list)
     audio: AudioTrack = Field(default_factory=AudioTrack)
+
+
+TimelineClip.model_rebuild()
+Timeline.model_rebuild()

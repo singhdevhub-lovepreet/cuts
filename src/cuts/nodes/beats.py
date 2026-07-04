@@ -26,10 +26,12 @@ class BeatsNode(Node):
 
     def _analyze_music(self, path: Path) -> BeatGrid | None:
         try:
-            import librosa  # type: ignore[import-not-found]
+            import librosa
+            import numpy as np
         except ImportError:
             return None
         audio, sample_rate = librosa.load(str(path), sr=None, mono=True)
         tempo, beats = librosa.beat.beat_track(y=audio, sr=sample_rate)
         beat_times = tuple(float(time) for time in librosa.frames_to_time(beats, sr=sample_rate))
-        return BeatGrid(music_path=path, tempo=float(tempo), beats=beat_times)
+        tempo_value = float(np.asarray(tempo, dtype=float).reshape(-1)[0])
+        return BeatGrid(music_path=path, tempo=tempo_value, beats=beat_times)

@@ -26,6 +26,14 @@ def test_ffmpeg_command_construction_includes_ducking_and_subtitles() -> None:
     plan = build_ffmpeg_plan(timeline, Path("out.mp4"), work_dir=Path("/tmp"))
     command = " ".join(plan.command)
     assert "ffmpeg" in command
-    assert "sidechaincompress" in plan.filter_complex
+    assert "[acatf]asplit=2[speech_mix][speech_sc]" in plan.filter_complex
+    assert (
+        "[musicf][speech_sc]sidechaincompress=threshold=0.02:ratio=8:attack=5:release=250[ducked_music]"
+        in plan.filter_complex
+    )
+    assert (
+        "[speech_mix][ducked_music]amix=inputs=2:duration=first:dropout_transition=0[mixed]"
+        in plan.filter_complex
+    )
     assert "subtitles=" in plan.filter_complex
     assert "-map [vout] -map [aout]" in command

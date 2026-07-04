@@ -31,8 +31,8 @@ class ShotsNode(Node):
         self, path: Path, clip_id: str, duration: float, threshold: float
     ) -> list[Shot]:
         try:
-            from scenedetect import SceneManager, open_video  # type: ignore[import-not-found]
-            from scenedetect.detectors import ContentDetector  # type: ignore[import-not-found]
+            from scenedetect import SceneManager, open_video
+            from scenedetect.detectors import ContentDetector
         except ImportError:
             return [Shot(clip_id=clip_id, start=0.0, end=duration)]
 

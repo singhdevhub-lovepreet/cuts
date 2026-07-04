@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from cuts.domain import (
     BeatGrid,
@@ -11,9 +12,11 @@ from cuts.domain import (
     SpeechRegion,
     WordTimestamp,
 )
-from cuts.edl import AudioTrack, Caption, CaptionTrack, Timeline, TimelineClip
+from cuts.edl import AudioTrack, Caption, CaptionTrack, Timeline, TimelineClip, Transition
 from cuts.graph import Context, Node
 from cuts.vlm.models import SequencePlan
+
+TransitionKind = Literal["cut", "fade", "crossfade", "dip_to_black"]
 
 
 @dataclass(slots=True)
@@ -55,8 +58,9 @@ class AssembleNode(Node):
             )
             for decision in decisions
         ]
+        self._apply_transitions(clips, context.config)
         captions = self._build_captions(clips, context.words)
-        duration = sum(clip.source_out - clip.source_in for clip in clips)
+        duration = self._timeline_duration(clips)
         return Timeline(
             target_width=context.target_width,
             target_height=context.target_height,
@@ -233,14 +237,15 @@ class AssembleNode(Node):
             words, key=lambda item: (item.clip_id, item.start, item.end, item.text)
         )
         output_offset = 0.0
-        for clip in clips:
+        for index, clip in enumerate(clips):
+            clip_start = output_offset if index == 0 else output_offset - clip.transition.duration
             for word in ordered_words:
                 if word.clip_id != clip.source_clip_id:
                     continue
                 if word.start < clip.source_in or word.end > clip.source_out:
                     continue
-                start = output_offset + (word.start - clip.source_in)
-                end = output_offset + (min(word.end, clip.source_out) - clip.source_in)
+                start = clip_start + (word.start - clip.source_in)
+                end = clip_start + (min(word.end, clip.source_out) - clip.source_in)
                 if end <= start:
                     continue
                 captions.append(
@@ -251,8 +256,46 @@ class AssembleNode(Node):
                         text=word.text,
                     )
                 )
-            output_offset += clip.source_out - clip.source_in
+            output_offset = clip_start + (clip.source_out - clip.source_in)
         return captions
+
+    def _apply_transitions(self, clips: list[TimelineClip], config: EditorConfig) -> None:
+        for clip in clips:
+            clip.transition = Transition()
+        if not config.assembler_transitions or len(clips) <= 1:
+            return
+        transition_kind = self._normalize_transition_kind(config.assembler_transition_kind)
+        if transition_kind == "cut":
+            return
+        previous_length = clips[0].source_out - clips[0].source_in
+        for clip in clips[1:]:
+            current_length = clip.source_out - clip.source_in
+            duration = min(
+                config.assembler_transition_seconds,
+                0.5 * min(previous_length, current_length),
+            )
+            if duration <= 0.02:
+                clip.transition = Transition()
+            else:
+                clip.transition = Transition(kind=transition_kind, duration=duration)
+            previous_length = current_length
+
+    def _normalize_transition_kind(self, kind: str) -> TransitionKind:
+        normalized = kind.strip().lower()
+        if normalized == "fade":
+            normalized = "crossfade"
+        if normalized == "crossfade":
+            return "crossfade"
+        if normalized == "dip_to_black":
+            return "dip_to_black"
+        return "cut"
+
+    def _timeline_duration(self, clips: list[TimelineClip]) -> float:
+        output_offset = 0.0
+        for index, clip in enumerate(clips):
+            clip_start = output_offset if index == 0 else output_offset - clip.transition.duration
+            output_offset = clip_start + (clip.source_out - clip.source_in)
+        return output_offset
 
     def _group_shots(self, shots: list[Shot]) -> dict[str, list[Shot]]:
         grouped: dict[str, list[Shot]] = {}

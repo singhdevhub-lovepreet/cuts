@@ -20,6 +20,9 @@ class EditorConfig:
     assembler_gap_snap_seconds: float = 0.2
     assembler_beat_sync: bool = True
     assembler_beat_snap_max_seconds: float = 1.0
+    assembler_transitions: bool = True
+    assembler_transition_kind: str = "crossfade"
+    assembler_transition_seconds: float = 0.25
     assembler_waste_penalty: float = 1.0
     assembler_speech_bonus: float = 2.0
     assembler_sharpness_bonus: float = 0.01

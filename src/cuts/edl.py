@@ -11,7 +11,7 @@ SCHEMA_VERSION = "0.2.0"
 class Transition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["cut", "fade"] = "cut"
+    kind: Literal["cut", "fade", "crossfade", "dip_to_black"] = "cut"
     duration: float = 0.0
 
     @field_validator("duration")

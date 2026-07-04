@@ -64,7 +64,8 @@ class Renderer:
 
     def _build_filter_complex(self, timeline: Timeline, subtitles_path: Path | None) -> str:
         parts: list[str] = []
-        concat_inputs: list[str] = []
+        video_labels: list[str] = []
+        audio_labels: list[str] = []
         for index, clip in enumerate(timeline.clips):
             video_label = f"v{index}"
             audio_label = f"a{index}"
@@ -73,7 +74,7 @@ class Renderer:
             parts.append(
                 f"[{index}:v]trim=start={self._format_number(clip.source_in)}:end={self._format_number(clip.source_out)},"
                 f"setpts=PTS-STARTPTS,crop='{crop_w_expr}':'{crop_h_expr}':{crop_x_expr}:{crop_y_expr},"
-                f"scale={timeline.target_width}:{timeline.target_height}:flags=lanczos,setsar=1[{video_label}]"
+                f"scale={timeline.target_width}:{timeline.target_height}:flags=lanczos,fps={self._format_number(timeline.target_fps)},setsar=1[{video_label}]"
             )
             if clip.has_audio:
                 parts.append(
@@ -86,24 +87,31 @@ class Renderer:
                     f"anullsrc=r=48000:cl=stereo,atrim=duration={self._format_number(duration)},"
                     f"asetpts=PTS-STARTPTS[{audio_label}]"
                 )
-            concat_inputs.extend([f"[{video_label}]", f"[{audio_label}]"])
-        if concat_inputs:
-            parts.append(
-                f"{''.join(concat_inputs)}concat=n={len(timeline.clips)}:v=1:a=1[vcat][acat]"
-            )
+            video_labels.append(f"[{video_label}]")
+            audio_labels.append(f"[{audio_label}]")
+        if timeline.clips:
+            if self._has_transitions(timeline):
+                vcat, acat = self._build_transition_chain(parts, timeline)
+            else:
+                concat_inputs = "".join(
+                    label for pair in zip(video_labels, audio_labels, strict=True) for label in pair
+                )
+                parts.append(f"{concat_inputs}concat=n={len(timeline.clips)}:v=1:a=1[vcat][acat]")
+                vcat, acat = "vcat", "acat"
         else:
             parts.append("color=c=black:s=1080x1920:d=1[vcat]")
             parts.append("anullsrc=r=48000:cl=stereo:d=1[acat]")
+            vcat, acat = "vcat", "acat"
         if subtitles_path is not None:
-            parts.append(f"[vcat]subtitles={self._escape_filter_path(subtitles_path)}[vout]")
+            parts.append(f"[{vcat}]subtitles={self._escape_filter_path(subtitles_path)}[vout]")
         else:
-            parts.append("[vcat]setpts=PTS-STARTPTS[vout]")
+            parts.append(f"[{vcat}]setpts=PTS-STARTPTS[vout]")
         if timeline.audio.music_path is not None:
             parts.append(
                 f"[{len(timeline.clips)}:a]atrim=start=0:end={self._format_number(self._timeline_duration(timeline))},"
                 f"asetpts=PTS-STARTPTS,aresample=48000,volume=1[music]"
             )
-            parts.append("[acat]aformat=sample_fmts=fltp:channel_layouts=stereo[acatf]")
+            parts.append(f"[{acat}]aformat=sample_fmts=fltp:channel_layouts=stereo[acatf]")
             parts.append("[music]aformat=sample_fmts=fltp:channel_layouts=stereo[musicf]")
             if timeline.audio.ducking:
                 parts.append("[acatf]asplit=2[speech_mix][speech_sc]")
@@ -121,11 +129,60 @@ class Renderer:
                 f"[mixed]loudnorm=I={self._format_number(timeline.audio.normalize_lufs)}:TP=-1.5:LRA=11[aout]"
             )
         else:
-            parts.append("[acat]aformat=sample_fmts=fltp:channel_layouts=stereo[acatf]")
+            parts.append(f"[{acat}]aformat=sample_fmts=fltp:channel_layouts=stereo[acatf]")
             parts.append(
                 f"[acatf]loudnorm=I={self._format_number(timeline.audio.normalize_lufs)}:TP=-1.5:LRA=11[aout]"
             )
         return ";".join(parts)
+
+    def _build_transition_chain(self, parts: list[str], timeline: Timeline) -> tuple[str, str]:
+        video_label = "v0"
+        audio_label = "a0"
+        current_duration = self._clip_duration(timeline.clips[0])
+        for index, clip in enumerate(timeline.clips[1:], start=1):
+            clip_duration = self._clip_duration(clip)
+            transition_duration = min(
+                max(0.0, clip.transition.duration),
+                current_duration,
+                clip_duration,
+            )
+            if transition_duration > 0.0:
+                transition_name = self._transition_filter_name(clip.transition.kind)
+                offset = max(0.0, current_duration - transition_duration)
+                next_video_label = f"vxf{index}"
+                next_audio_label = f"axf{index}"
+                parts.append(
+                    f"[{video_label}][v{index}]xfade=transition={transition_name}:duration={self._format_number(transition_duration)}:offset={self._format_number(offset)}[{next_video_label}]"
+                )
+                parts.append(
+                    f"[{audio_label}][a{index}]acrossfade=d={self._format_number(transition_duration)}[{next_audio_label}]"
+                )
+                video_label = next_video_label
+                audio_label = next_audio_label
+                current_duration = current_duration + clip_duration - transition_duration
+                continue
+            next_video_label = f"vcat{index}"
+            next_audio_label = f"acat{index}"
+            parts.append(f"[{video_label}][v{index}]concat=n=2:v=1:a=0[{next_video_label}]")
+            parts.append(f"[{audio_label}][a{index}]concat=n=2:v=0:a=1[{next_audio_label}]")
+            video_label = next_video_label
+            audio_label = next_audio_label
+            current_duration = current_duration + clip_duration
+        return video_label, audio_label
+
+    def _has_transitions(self, timeline: Timeline) -> bool:
+        return any(clip.transition.duration > 0.0 for clip in timeline.clips[1:])
+
+    def _transition_filter_name(self, kind: str) -> str:
+        normalized = kind.strip().lower()
+        if normalized in {"crossfade", "fade"}:
+            return "fade"
+        if normalized == "dip_to_black":
+            return "fadeblack"
+        return "fade"
+
+    def _clip_duration(self, clip: TimelineClip) -> float:
+        return clip.source_out - clip.source_in
 
     def _crop_dimensions_expression(self, crop_aspect: float) -> tuple[str, str]:
         aspect = self._format_number(crop_aspect)

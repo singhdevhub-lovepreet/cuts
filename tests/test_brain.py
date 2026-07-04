@@ -162,6 +162,8 @@ def test_sequence_plan_flows_into_assemble() -> None:
     context = Context(source_paths=(clip.path,), target_duration=4.0)
     context.config = EditorConfig(
         assembler_min_segment_seconds=0.5,
+        assembler_beat_sync=False,
+        assembler_transitions=False,
         assembler_waste_penalty=0.0,
         assembler_speech_bonus=1.0,
         assembler_sharpness_bonus=0.0,

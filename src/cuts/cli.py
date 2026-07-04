@@ -11,10 +11,13 @@ from cuts.nodes.beats import BeatsNode
 from cuts.nodes.ingest import IngestNode
 from cuts.nodes.motion import MotionNode
 from cuts.nodes.reframe import ReframeNode
+from cuts.nodes.sequence import SequencerNode
 from cuts.nodes.shots import ShotsNode
 from cuts.nodes.silence import SilenceNode
 from cuts.nodes.transcribe import TranscribeNode
+from cuts.nodes.vibe import VibeTaggerNode, build_default_vlm_client
 from cuts.render import render_timeline
+from cuts.vlm.models import Platform
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +28,13 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("clips", nargs="+", type=Path)
     analyze.add_argument("--music", type=Path)
     analyze.add_argument("--target-duration", type=float)
+    analyze.add_argument("--vibe", default="")
+    analyze.add_argument(
+        "--platform",
+        choices=[platform.value for platform in Platform],
+        default=Platform.REELS.value,
+    )
+    analyze.add_argument("--brain", action="store_true")
     analyze.add_argument("--whisper-model", default="base")
     analyze.add_argument("--output", type=Path, required=True)
     analyze.add_argument("--config", type=Path)
@@ -38,6 +48,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("clips", nargs="+", type=Path)
     run.add_argument("--music", type=Path)
     run.add_argument("--target-duration", type=float)
+    run.add_argument("--vibe", default="")
+    run.add_argument(
+        "--platform",
+        choices=[platform.value for platform in Platform],
+        default=Platform.REELS.value,
+    )
+    run.add_argument("--brain", action="store_true")
     run.add_argument("--whisper-model", default="base")
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--config", type=Path)
@@ -55,21 +72,12 @@ def main(argv: list[str] | None = None) -> int:
             source_paths=tuple(args.clips),
             music_path=args.music,
             target_duration=args.target_duration,
+            vibe_prompt=args.vibe,
+            platform=Platform(args.platform),
             whisper_model=args.whisper_model,
             config=load_editor_config(args.config),
         )
-        pipeline = Pipeline(
-            [
-                IngestNode(),
-                ShotsNode(),
-                MotionNode(),
-                TranscribeNode(model_size=args.whisper_model),
-                SilenceNode(),
-                BeatsNode(),
-                AssembleNode(),
-                ReframeNode(),
-            ]
-        )
+        pipeline = _pipeline_for_args(args)
         context = pipeline.run(context)
         if context.timeline is None:
             raise RuntimeError("analysis pipeline did not produce a timeline")
@@ -86,22 +94,13 @@ def main(argv: list[str] | None = None) -> int:
             source_paths=tuple(args.clips),
             music_path=args.music,
             target_duration=args.target_duration,
+            vibe_prompt=args.vibe,
+            platform=Platform(args.platform),
             whisper_model=args.whisper_model,
             config=load_editor_config(args.config),
             output_path=args.output,
         )
-        pipeline = Pipeline(
-            [
-                IngestNode(),
-                ShotsNode(),
-                MotionNode(),
-                TranscribeNode(model_size=args.whisper_model),
-                SilenceNode(),
-                BeatsNode(),
-                AssembleNode(),
-                ReframeNode(),
-            ]
-        )
+        pipeline = _pipeline_for_args(args)
         context = pipeline.run(context)
         if context.timeline is None:
             raise RuntimeError("analysis pipeline did not produce a timeline")
@@ -109,6 +108,33 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     raise AssertionError(f"unexpected command: {args.command}")
+
+
+def _pipeline_for_args(args: argparse.Namespace) -> Pipeline:
+    nodes = [
+        IngestNode(),
+        ShotsNode(),
+        MotionNode(),
+        TranscribeNode(model_size=args.whisper_model),
+        SilenceNode(),
+        BeatsNode(),
+    ]
+    smart_requested = bool(args.brain or args.vibe.strip())
+    if smart_requested:
+        client = build_default_vlm_client()
+        nodes.extend(
+            [
+                VibeTaggerNode(client=client),
+                SequencerNode(client=client),
+            ]
+        )
+    nodes.extend(
+        [
+            AssembleNode(),
+            ReframeNode(),
+        ]
+    )
+    return Pipeline(nodes)
 
 
 if __name__ == "__main__":

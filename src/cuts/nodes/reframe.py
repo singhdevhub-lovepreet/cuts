@@ -474,18 +474,19 @@ class ReframeNode(Node):
             async_loading_frames=False,
         )
         box = np.asarray(seed.box, dtype=float)
+        local_seed_frame = max(0, seed.frame_idx - start_frame)
         predictor.add_new_points_or_box(
             inference_state,
-            frame_idx=seed.frame_idx,
+            frame_idx=local_seed_frame,
             obj_id=1,
             box=box,
         )
         tracked_centers: dict[int, tuple[float, float]] = {}
-        max_frames_to_track = end_frame - start_frame
+        max_frames_to_track = max(0, end_frame - start_frame)
         for reverse in (True, False):
             for frame_idx, object_ids, masks in predictor.propagate_in_video(
                 inference_state,
-                start_frame_idx=seed.frame_idx,
+                start_frame_idx=local_seed_frame,
                 max_frame_num_to_track=max_frames_to_track,
                 reverse=reverse,
             ):
@@ -493,7 +494,7 @@ class ReframeNode(Node):
                     continue
                 center = self._mask_to_center(masks, frame_width, frame_height)
                 if center is not None:
-                    tracked_centers[frame_idx] = center
+                    tracked_centers[start_frame + frame_idx] = center
         return tracked_centers
 
     def _sam2_frame_dir(self, source_path: Path, source_in: float, source_out: float) -> Path:

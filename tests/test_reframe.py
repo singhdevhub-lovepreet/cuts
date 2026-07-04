@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from cuts.edl import CropKeyframe
-from cuts.nodes.reframe import CropPathPlanner
+from cuts.nodes.reframe import CropPathPlanner, _max_frames_to_track
 
 
 def test_crop_bounds_clamp_on_wide_source_keeps_vertical_center_fixed() -> None:
@@ -23,3 +23,8 @@ def test_crop_smoothing_limits_velocity() -> None:
     assert smoothed[0].center_x == pytest.approx(0.2)
     assert smoothed[1].center_x == pytest.approx(0.3)
     assert smoothed[1].center_y == pytest.approx(0.5)
+
+
+def test_max_frames_to_track_is_inclusive() -> None:
+    assert _max_frames_to_track(0, 0) == 0
+    assert _max_frames_to_track(1, 37) == 35

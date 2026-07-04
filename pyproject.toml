@@ -25,6 +25,11 @@ reframe = [
 brain = [
   "google-genai==0.6.0",
 ]
+web = [
+  "fastapi==0.115.6",
+  "python-multipart==0.0.9",
+  "uvicorn[standard]==0.30.6",
+]
 
 [project.scripts]
 cuts = "cuts.cli:main"

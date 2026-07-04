@@ -111,6 +111,10 @@ class _CaptureLike(Protocol):
     def release(self) -> None: ...
 
 
+def _max_frames_to_track(start_frame: int, end_frame: int) -> int:
+    return max(0, end_frame - start_frame - 1)
+
+
 class _OpenCVModule(Protocol):
     CAP_PROP_POS_FRAMES: int
     COLOR_BGR2RGB: int
@@ -482,7 +486,7 @@ class ReframeNode(Node):
             box=box,
         )
         tracked_centers: dict[int, tuple[float, float]] = {}
-        max_frames_to_track = max(0, end_frame - start_frame)
+        max_frames_to_track = _max_frames_to_track(start_frame, end_frame)
         for reverse in (True, False):
             for frame_idx, object_ids, masks in predictor.propagate_in_video(
                 inference_state,

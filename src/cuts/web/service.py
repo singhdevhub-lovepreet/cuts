@@ -1,19 +1,27 @@
 from __future__ import annotations
 
-# ruff: noqa: I001
-
 import queue
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 
-from cuts.pipeline import PipelineOptions, RenderedJobResult, render_job
 from cuts.domain import EditorConfig
+from cuts.edl import Timeline
+from cuts.pipeline import (
+    PipelineOptions,
+    RenderedJobResult,
+    RerenderClipEdit,
+    load_pipeline_config,
+    load_words,
+    rebuild_timeline_for_rerender,
+    render_job,
+)
+from cuts.render import render_timeline
 from cuts.vlm.models import Platform
-from cuts.web.schemas import JobStatus, JobStatusResponse
+from cuts.web.schemas import JobStatus, JobStatusResponse, RerenderRequest
 
 
 class JobProgress(Protocol):
@@ -40,6 +48,12 @@ class WebJobRequest:
     config_path: Path | None = None
 
 
+@dataclass(slots=True, frozen=True)
+class WebJobTask:
+    kind: Literal["pipeline", "rerender"]
+    job_id: str
+
+
 @dataclass(slots=True)
 class JobRecord:
     job_id: str
@@ -48,11 +62,13 @@ class JobRecord:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     status: JobStatus = JobStatus.QUEUED
     stage: str | None = None
+    version: int = 1
     brain_backend: str = "phase0"
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
     edl_path: Path | None = None
     video_path: Path | None = None
+    pending_rerender: RerenderRequest | None = None
 
 
 class _RecordProgress:
@@ -74,7 +90,7 @@ class WebJobService:
         self._executor = executor or _default_executor
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.Lock()
-        self._queue: queue.Queue[str | None] = queue.Queue()
+        self._queue: queue.Queue[WebJobTask | None] = queue.Queue()
         self._stop = threading.Event()
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
@@ -97,7 +113,19 @@ class WebJobService:
         record = JobRecord(job_id=job_id, request=request, job_dir=job_dir)
         with self._lock:
             self._jobs[job_id] = record
-        self._queue.put(job_id)
+        self._queue.put(WebJobTask(kind="pipeline", job_id=job_id))
+        return record
+
+    def enqueue_rerender(self, job_id: str, request: RerenderRequest) -> JobRecord:
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is None:
+                raise KeyError(job_id)
+            record.pending_rerender = request
+            record.status = JobStatus.QUEUED
+            record.stage = "queued"
+            record.error = None
+        self._queue.put(WebJobTask(kind="rerender", job_id=job_id))
         return record
 
     def get(self, job_id: str) -> JobRecord | None:
@@ -112,17 +140,30 @@ class WebJobService:
             record.stage = stage
             record.status = JobStatus.RUNNING
 
-    def mark_done(self, job_id: str, result: RenderedJobResult) -> None:
+    def mark_done(
+        self,
+        job_id: str,
+        *,
+        brain_backend: str,
+        warnings: list[str],
+        edl_path: Path,
+        video_path: Path,
+        bump_version: bool = False,
+    ) -> None:
         with self._lock:
             record = self._jobs.get(job_id)
             if record is None:
                 return
             record.status = JobStatus.DONE
             record.stage = "done"
-            record.brain_backend = result.run.brain_backend
-            record.warnings = list(result.run.context.warnings)
-            record.edl_path = result.edl_path
-            record.video_path = result.video_path
+            record.brain_backend = brain_backend
+            record.warnings = list(warnings)
+            record.edl_path = edl_path
+            record.video_path = video_path
+            record.error = None
+            record.pending_rerender = None
+            if bump_version:
+                record.version += 1
 
     def mark_error(self, job_id: str, error: str) -> None:
         with self._lock:
@@ -140,11 +181,21 @@ class WebJobService:
         return self._snapshot_record(record)
 
     def _snapshot_record(self, record: JobRecord) -> JobStatusResponse:
-        video_url = f"/api/jobs/{record.job_id}/video" if record.video_path is not None else None
-        edl_url = f"/api/jobs/{record.job_id}/edl" if record.edl_path is not None else None
+        video_url = (
+            f"/api/jobs/{record.job_id}/video?v={record.version}"
+            if record.video_path is not None
+            else None
+        )
+        edl_url = (
+            f"/api/jobs/{record.job_id}/edl?v={record.version}"
+            if record.edl_path is not None
+            else None
+        )
         return JobStatusResponse(
             job_id=record.job_id,
             status=record.status,
+            version=record.version,
+            status_url=f"/api/jobs/{record.job_id}",
             stage=record.stage,
             brain_backend=record.brain_backend,
             warnings=list(record.warnings),
@@ -158,22 +209,72 @@ class WebJobService:
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
             try:
-                job_id = self._queue.get(timeout=0.1)
+                task = self._queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            if job_id is None:
+            if task is None:
                 continue
-            record = self.get(job_id)
+            record = self.get(task.job_id)
             if record is None:
                 continue
             try:
-                self.update_stage(job_id, "queued")
-                progress = _RecordProgress(self, job_id)
-                options = self._options_from_record(record)
-                result = self._executor(options, job_dir=record.job_dir, progress=progress)
-                self.mark_done(job_id, result)
+                if task.kind == "pipeline":
+                    self.update_stage(task.job_id, "queued")
+                    progress = _RecordProgress(self, task.job_id)
+                    options = self._options_from_record(record)
+                    result = self._executor(options, job_dir=record.job_dir, progress=progress)
+                    self.mark_done(
+                        task.job_id,
+                        brain_backend=result.run.brain_backend,
+                        warnings=list(result.run.context.warnings),
+                        edl_path=result.edl_path,
+                        video_path=result.video_path,
+                    )
+                else:
+                    self._rerender(task.job_id, record)
             except Exception as exc:  # pragma: no cover - exercised in integration only
-                self.mark_error(job_id, str(exc))
+                self.mark_error(task.job_id, str(exc))
+
+    def _rerender(self, job_id: str, record: JobRecord) -> None:
+        request = record.pending_rerender
+        if request is None:
+            raise RuntimeError("rerender request missing")
+        edl_path = record.job_dir / "result.edl.json"
+        words_path = record.job_dir / "words.json"
+        if not edl_path.exists():
+            raise FileNotFoundError(edl_path)
+        if not words_path.exists():
+            raise FileNotFoundError(words_path)
+        self.update_stage(job_id, "rerender")
+        original = Timeline.model_validate_json(edl_path.read_text(encoding="utf-8"))
+        words = load_words(words_path)
+        timeline = rebuild_timeline_for_rerender(
+            original,
+            words,
+            [
+                RerenderClipEdit(
+                    original_index=edit.original_index,
+                    source_in=edit.source_in,
+                    source_out=edit.source_out,
+                    transition_kind=edit.transition_kind,
+                    transition_duration=edit.transition_duration,
+                )
+                for edit in request.edits
+            ],
+            captions=request.captions,
+            ducking_override=request.ducking,
+        )
+        edl_path.write_text(timeline.model_dump_json(indent=2), encoding="utf-8")
+        self.update_stage(job_id, "render")
+        render_timeline(timeline, record.job_dir / "result.mp4", record.job_dir / "render-work")
+        self.mark_done(
+            job_id,
+            brain_backend=record.brain_backend,
+            warnings=list(record.warnings),
+            edl_path=edl_path,
+            video_path=record.job_dir / "result.mp4",
+            bump_version=True,
+        )
 
     def _options_from_record(self, record: JobRecord) -> PipelineOptions:
         return PipelineOptions(
@@ -188,8 +289,6 @@ class WebJobService:
         )
 
     def _load_config(self, config_path: Path | None) -> EditorConfig:
-        from cuts.pipeline import load_pipeline_config
-
         return load_pipeline_config(config_path)
 
 

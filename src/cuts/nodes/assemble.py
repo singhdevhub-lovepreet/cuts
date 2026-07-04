@@ -41,7 +41,7 @@ class AssembleNode(Node):
             )
             for decision in decisions
         ]
-        captions = self._build_captions(clips, context.words)
+        captions = build_captions(clips, context.words)
         duration = sum(clip.source_out - clip.source_in for clip in clips)
         return Timeline(
             target_width=context.target_width,
@@ -204,31 +204,7 @@ class AssembleNode(Node):
     def _build_captions(
         self, clips: list[TimelineClip], words: list[WordTimestamp]
     ) -> list[Caption]:
-        captions: list[Caption] = []
-        ordered_words = sorted(
-            words, key=lambda item: (item.clip_id, item.start, item.end, item.text)
-        )
-        output_offset = 0.0
-        for clip in clips:
-            for word in ordered_words:
-                if word.clip_id != clip.source_clip_id:
-                    continue
-                if word.start < clip.source_in or word.end > clip.source_out:
-                    continue
-                start = output_offset + (word.start - clip.source_in)
-                end = output_offset + (min(word.end, clip.source_out) - clip.source_in)
-                if end <= start:
-                    continue
-                captions.append(
-                    Caption(
-                        source_clip_id=word.clip_id,
-                        start=start,
-                        end=end,
-                        text=word.text,
-                    )
-                )
-            output_offset += clip.source_out - clip.source_in
-        return captions
+        return build_captions(clips, words)
 
     def _group_shots(self, shots: list[Shot]) -> dict[str, list[Shot]]:
         grouped: dict[str, list[Shot]] = {}
@@ -281,3 +257,30 @@ class AssembleNode(Node):
             if clip.clip_id == clip_id:
                 return clip.has_audio
         raise KeyError(f"unknown clip id: {clip_id}")
+
+
+def build_captions(clips: list[TimelineClip], words: list[WordTimestamp]) -> list[Caption]:
+    captions: list[Caption] = []
+    ordered_words = sorted(words, key=lambda item: (item.clip_id, item.start, item.end, item.text))
+    output_offset = 0.0
+    for index, clip in enumerate(clips):
+        clip_start = output_offset if index == 0 else output_offset - clip.transition.duration
+        for word in ordered_words:
+            if word.clip_id != clip.source_clip_id:
+                continue
+            if word.start < clip.source_in or word.end > clip.source_out:
+                continue
+            start = clip_start + (word.start - clip.source_in)
+            end = clip_start + (min(word.end, clip.source_out) - clip.source_in)
+            if end <= start:
+                continue
+            captions.append(
+                Caption(
+                    source_clip_id=word.clip_id,
+                    start=start,
+                    end=end,
+                    text=word.text,
+                )
+            )
+        output_offset = clip_start + (clip.source_out - clip.source_in)
+    return captions

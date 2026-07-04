@@ -111,6 +111,10 @@ class _CaptureLike(Protocol):
     def release(self) -> None: ...
 
 
+def _max_frames_to_track(start_frame: int, end_frame: int) -> int:
+    return max(0, end_frame - start_frame - 1)
+
+
 class _OpenCVModule(Protocol):
     CAP_PROP_POS_FRAMES: int
     COLOR_BGR2RGB: int
@@ -467,6 +471,10 @@ class ReframeNode(Node):
             import numpy as np
         except ImportError:
             return {}
+        frame_count = self._count_frame_images(frame_dir)
+        if frame_count <= 0:
+            return {}
+        max_frame_idx = frame_count - 1
         inference_state = predictor.init_state(
             str(frame_dir),
             offload_video_to_cpu=True,
@@ -474,7 +482,7 @@ class ReframeNode(Node):
             async_loading_frames=False,
         )
         box = np.asarray(seed.box, dtype=float)
-        local_seed_frame = max(0, seed.frame_idx - start_frame)
+        local_seed_frame = min(max(0, seed.frame_idx - start_frame), max_frame_idx)
         predictor.add_new_points_or_box(
             inference_state,
             frame_idx=local_seed_frame,
@@ -482,7 +490,7 @@ class ReframeNode(Node):
             box=box,
         )
         tracked_centers: dict[int, tuple[float, float]] = {}
-        max_frames_to_track = max(0, end_frame - start_frame)
+        max_frames_to_track = min(_max_frames_to_track(start_frame, end_frame), max_frame_idx)
         for reverse in (True, False):
             for frame_idx, object_ids, masks in predictor.propagate_in_video(
                 inference_state,
@@ -496,6 +504,9 @@ class ReframeNode(Node):
                 if center is not None:
                     tracked_centers[start_frame + frame_idx] = center
         return tracked_centers
+
+    def _count_frame_images(self, frame_dir: Path) -> int:
+        return sum(1 for _ in frame_dir.glob("*.jpg"))
 
     def _sam2_frame_dir(self, source_path: Path, source_in: float, source_out: float) -> Path:
         cache_dir = Path.home() / ".cache" / "cuts" / "sam2" / "segments"

@@ -3,19 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from cuts.config import load_editor_config
 from cuts.edl import Timeline
-from cuts.graph import Context, Pipeline
-from cuts.nodes.assemble import AssembleNode
-from cuts.nodes.beats import BeatsNode
-from cuts.nodes.ingest import IngestNode
-from cuts.nodes.motion import MotionNode
-from cuts.nodes.reframe import ReframeNode
-from cuts.nodes.sequence import SequencerNode
-from cuts.nodes.shots import ShotsNode
-from cuts.nodes.silence import SilenceNode
-from cuts.nodes.transcribe import TranscribeNode
-from cuts.nodes.vibe import VibeTaggerNode, build_default_vlm_client
+from cuts.pipeline import PipelineOptions, load_pipeline_config, run_pipeline
 from cuts.render import render_timeline
 from cuts.vlm.models import Platform
 
@@ -68,20 +57,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "analyze":
-        context = Context(
+        options = PipelineOptions(
             source_paths=tuple(args.clips),
             music_path=args.music,
             target_duration=args.target_duration,
             vibe_prompt=args.vibe,
             platform=Platform(args.platform),
+            brain=args.brain,
             whisper_model=args.whisper_model,
-            config=load_editor_config(args.config),
+            config=load_pipeline_config(args.config),
         )
-        pipeline = _pipeline_for_args(args)
-        context = pipeline.run(context)
-        if context.timeline is None:
+        result = run_pipeline(options)
+        if result.context.timeline is None:
             raise RuntimeError("analysis pipeline did not produce a timeline")
-        args.output.write_text(context.timeline.model_dump_json(indent=2), encoding="utf-8")
+        args.output.write_text(
+            result.context.timeline.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
         return 0
 
     if args.command == "render":
@@ -90,51 +82,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "run":
-        context = Context(
+        options = PipelineOptions(
             source_paths=tuple(args.clips),
             music_path=args.music,
             target_duration=args.target_duration,
             vibe_prompt=args.vibe,
             platform=Platform(args.platform),
+            brain=args.brain,
             whisper_model=args.whisper_model,
-            config=load_editor_config(args.config),
-            output_path=args.output,
+            config=load_pipeline_config(args.config),
         )
-        pipeline = _pipeline_for_args(args)
-        context = pipeline.run(context)
-        if context.timeline is None:
+        result = run_pipeline(options)
+        if result.context.timeline is None:
             raise RuntimeError("analysis pipeline did not produce a timeline")
-        render_timeline(context.timeline, args.output, args.work_dir)
+        render_timeline(result.context.timeline, args.output, args.work_dir)
         return 0
 
     raise AssertionError(f"unexpected command: {args.command}")
-
-
-def _pipeline_for_args(args: argparse.Namespace) -> Pipeline:
-    nodes = [
-        IngestNode(),
-        ShotsNode(),
-        MotionNode(),
-        TranscribeNode(model_size=args.whisper_model),
-        SilenceNode(),
-        BeatsNode(),
-    ]
-    smart_requested = bool(args.brain or args.vibe.strip())
-    if smart_requested:
-        client = build_default_vlm_client()
-        nodes.extend(
-            [
-                VibeTaggerNode(client=client),
-                SequencerNode(client=client),
-            ]
-        )
-    nodes.extend(
-        [
-            AssembleNode(),
-            ReframeNode(),
-        ]
-    )
-    return Pipeline(nodes)
 
 
 if __name__ == "__main__":

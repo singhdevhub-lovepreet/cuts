@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cuts.edl import AudioTrack, Caption, CaptionTrack, Timeline, TimelineClip
+from cuts.edl import (
+    AudioTrack,
+    Caption,
+    CaptionTrack,
+    CropKeyframe,
+    Timeline,
+    TimelineClip,
+)
 
 
 def test_timeline_round_trip_json() -> None:
@@ -17,6 +24,11 @@ def test_timeline_round_trip_json() -> None:
                 source_path=Path("clip1.mp4"),
                 source_in=1.0,
                 source_out=5.0,
+                crop_aspect=9.0 / 16.0,
+                crop_path=[
+                    CropKeyframe(t=0.0, center_x=0.5, center_y=0.5),
+                    CropKeyframe(t=1.0, center_x=0.6, center_y=0.5),
+                ],
             )
         ],
         caption_tracks=[
@@ -31,4 +43,4 @@ def test_timeline_round_trip_json() -> None:
     dumped = timeline.model_dump_json()
     loaded = Timeline.model_validate_json(dumped)
     assert loaded == timeline
-    assert loaded.schema_version == "0.1.0"
+    assert loaded.schema_version == "0.2.0"

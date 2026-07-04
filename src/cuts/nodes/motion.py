@@ -29,8 +29,8 @@ class MotionNode(Node):
         self, path: Path, clip_id: str, duration: float, context: Context
     ) -> list[MotionWasteSegment]:
         try:
-            import cv2  # type: ignore[import-not-found]
-            import numpy as np  # type: ignore[import-not-found]
+            import cv2
+            import numpy as np
         except ImportError:
             return []
 

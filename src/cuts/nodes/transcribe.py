@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from cuts.domain import WordTimestamp
 from cuts.graph import Context, Node
@@ -10,6 +12,23 @@ from cuts.graph import Context, Node
 @dataclass(slots=True)
 class TranscriptionResult:
     words: list[WordTimestamp]
+
+
+class WordLike(Protocol):
+    word: str
+    start: float
+    end: float
+    probability: float | None
+
+
+class SegmentLike(Protocol):
+    words: Iterable[WordLike] | None
+
+
+class WhisperModelLike(Protocol):
+    def transcribe(
+        self, audio: str, word_timestamps: bool = ...
+    ) -> tuple[Iterable[SegmentLike], object]: ...
 
 
 class TranscribeNode(Node):
@@ -23,7 +42,7 @@ class TranscribeNode(Node):
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type
-        self._model = None
+        self._model: WhisperModelLike | None = None
 
     def run(self, context: Context) -> Context:
         context.words = []
@@ -31,11 +50,11 @@ class TranscribeNode(Node):
             context.words.extend(self._transcribe_clip(clip.path, clip.clip_id, clip.has_audio))
         return context
 
-    def _load_model(self):
+    def _load_model(self) -> WhisperModelLike | None:
         if self._model is not None:
             return self._model
         try:
-            from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+            from faster_whisper import WhisperModel
         except ImportError:
             self._model = None
             return None

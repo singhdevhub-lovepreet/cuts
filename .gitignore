@@ -28,3 +28,6 @@ htmlcov/
 outputs/
 renders/
 work/
+samples/
+*.mp3
+*.ogg

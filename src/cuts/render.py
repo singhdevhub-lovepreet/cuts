@@ -103,20 +103,27 @@ class Renderer:
                 f"[{len(timeline.clips)}:a]atrim=start=0:end={self._format_number(self._timeline_duration(timeline))},"
                 f"asetpts=PTS-STARTPTS,aresample=48000,volume=1[music]"
             )
+            parts.append("[acat]aformat=sample_fmts=fltp:channel_layouts=stereo[acatf]")
+            parts.append("[music]aformat=sample_fmts=fltp:channel_layouts=stereo[musicf]")
             if timeline.audio.ducking:
+                parts.append("[acatf]asplit=2[speech_mix][speech_sc]")
                 parts.append(
-                    "[acat][music]sidechaincompress=threshold=0.02:ratio=8:attack=5:release=250[mixed]"
+                    "[musicf][speech_sc]sidechaincompress=threshold=0.02:ratio=8:attack=5:release=250[ducked_music]"
+                )
+                parts.append(
+                    "[speech_mix][ducked_music]amix=inputs=2:duration=first:dropout_transition=0[mixed]"
                 )
             else:
                 parts.append(
-                    "[acat][music]amix=inputs=2:duration=first:dropout_transition=0[mixed]"
+                    "[acatf][musicf]amix=inputs=2:duration=first:dropout_transition=0[mixed]"
                 )
             parts.append(
                 f"[mixed]loudnorm=I={self._format_number(timeline.audio.normalize_lufs)}:TP=-1.5:LRA=11[aout]"
             )
         else:
+            parts.append("[acat]aformat=sample_fmts=fltp:channel_layouts=stereo[acatf]")
             parts.append(
-                f"[acat]loudnorm=I={self._format_number(timeline.audio.normalize_lufs)}:TP=-1.5:LRA=11[aout]"
+                f"[acatf]loudnorm=I={self._format_number(timeline.audio.normalize_lufs)}:TP=-1.5:LRA=11[aout]"
             )
         return ";".join(parts)
 

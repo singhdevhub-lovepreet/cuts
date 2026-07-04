@@ -91,6 +91,14 @@ class AssembleNode(Node):
                         score=score,
                     )
                 )
+        decisions.sort(
+            key=lambda decision: (
+                -decision.score,
+                decision.clip_id,
+                decision.source_in,
+                decision.source_out,
+            )
+        )
         selected: list[AssemblerDecision] = []
         total = 0.0
         for decision in decisions:

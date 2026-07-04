@@ -9,5 +9,7 @@ silence_merge_gap_seconds = 0.3
 speech_padding_seconds = 0.15
 assembler_min_segment_seconds = 0.5
 assembler_gap_snap_seconds = 0.2
+assembler_beat_sync = true
+assembler_beat_snap_max_seconds = 1.0
 assembler_waste_penalty = 1.0
 assembler_speech_bonus = 2.0

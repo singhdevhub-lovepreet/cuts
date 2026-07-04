@@ -3,7 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from cuts.domain import BeatGrid, MotionWasteSegment, Shot, SpeechRegion, WordTimestamp
+from cuts.domain import (
+    BeatGrid,
+    EditorConfig,
+    MotionWasteSegment,
+    Shot,
+    SpeechRegion,
+    WordTimestamp,
+)
 from cuts.edl import AudioTrack, Caption, CaptionTrack, Timeline, TimelineClip
 from cuts.graph import Context, Node
 from cuts.vlm.models import SequencePlan
@@ -31,6 +38,13 @@ class AssembleNode(Node):
         decisions = self._select_segments(context)
         if context.sequence_plan is not None:
             decisions = self._limit_to_target_duration(decisions, context.target_duration)
+        if context.beat_grid is not None and context.config.assembler_beat_sync and decisions:
+            decisions = self._align_to_beats(
+                decisions,
+                context.beat_grid,
+                context.config,
+                context.target_duration,
+            )
         clips = [
             TimelineClip(
                 source_clip_id=decision.clip_id,
@@ -124,8 +138,6 @@ class AssembleNode(Node):
                 break
             selected.append(decision)
             total += duration
-        if context.beat_grid is not None and selected:
-            selected = self._snap_to_beats(selected, context.beat_grid)
         return selected
 
     def _select_from_sequence_plan(self, plan: SequencePlan) -> list[AssemblerDecision]:
@@ -174,32 +186,44 @@ class AssembleNode(Node):
             break
         return selected
 
-    def _snap_to_beats(
-        self, decisions: list[AssemblerDecision], beat_grid: BeatGrid
+    def _align_to_beats(
+        self,
+        decisions: list[AssemblerDecision],
+        beat_grid: BeatGrid,
+        config: EditorConfig,
+        target_duration: float | None,
     ) -> list[AssemblerDecision]:
-        if not beat_grid.beats:
+        beats = tuple(sorted(set(beat_grid.beats)))
+        if not beats:
             return decisions
-        # Heuristic Phase-0 placeholder: this still snaps source-relative cut
-        # points to beat timestamps and should be revisited when cut timing is
-        # aligned on the output timeline.
-        snapped: list[AssemblerDecision] = []
+        aligned: list[AssemblerDecision] = []
+        output_offset = 0.0
         for decision in decisions:
-            start = self._snap_point(decision.source_in, beat_grid.beats)
-            end = self._snap_point(decision.source_out, beat_grid.beats)
-            if end <= start:
-                end = decision.source_out
-            snapped.append(
+            if target_duration is not None and output_offset >= target_duration:
+                break
+            available = decision.source_out - decision.source_in
+            if available < config.assembler_min_segment_seconds:
+                aligned.append(decision)
+                output_offset += available
+                continue
+            natural_end = output_offset + available
+            window_low = output_offset + config.assembler_min_segment_seconds
+            candidate_beats = [beat for beat in beats if window_low <= beat <= natural_end]
+            chosen_len = available
+            if candidate_beats:
+                chosen_beat = min(candidate_beats, key=lambda beat: (abs(beat - natural_end), beat))
+                if natural_end - chosen_beat <= config.assembler_beat_snap_max_seconds:
+                    chosen_len = chosen_beat - output_offset
+            aligned.append(
                 AssemblerDecision(
                     clip_id=decision.clip_id,
-                    source_in=start,
-                    source_out=end,
+                    source_in=decision.source_in,
+                    source_out=decision.source_in + chosen_len,
                     score=decision.score,
                 )
             )
-        return snapped
-
-    def _snap_point(self, value: float, beats: tuple[float, ...]) -> float:
-        return min(beats, key=lambda beat: (abs(beat - value), beat))
+            output_offset += chosen_len
+        return aligned
 
     def _build_captions(
         self, clips: list[TimelineClip], words: list[WordTimestamp]

@@ -18,6 +18,8 @@ class EditorConfig:
     speech_padding_seconds: float = 0.15
     assembler_min_segment_seconds: float = 0.5
     assembler_gap_snap_seconds: float = 0.2
+    assembler_beat_sync: bool = True
+    assembler_beat_snap_max_seconds: float = 1.0
     assembler_waste_penalty: float = 1.0
     assembler_speech_bonus: float = 2.0
     assembler_sharpness_bonus: float = 0.01

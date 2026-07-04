@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools==75.1.0", "wheel==0.44.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cuts"
+version = "0.0.1"
+description = "Deterministic EDL-centric short-video editor"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic==2.9.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy==1.11.2",
+  "pytest==8.3.2",
+  "ruff==0.6.9",
+]
+
+[project.scripts]
+cuts = "cuts.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM", "C4"]
+ignore = ["B008"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+show_error_codes = true
+ignore_missing_imports = true

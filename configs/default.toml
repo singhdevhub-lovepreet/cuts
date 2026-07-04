@@ -1,0 +1,13 @@
+scene_threshold = 27.0
+motion_window_seconds = 1.0
+motion_stride_seconds = 0.5
+motion_sharpness_threshold = 80.0
+motion_flow_threshold = 1.2
+silence_window_seconds = 0.5
+silence_rms_threshold = 250.0
+silence_merge_gap_seconds = 0.3
+speech_padding_seconds = 0.15
+assembler_min_segment_seconds = 0.5
+assembler_gap_snap_seconds = 0.2
+assembler_waste_penalty = 1.0
+assembler_speech_bonus = 2.0

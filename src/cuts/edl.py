@@ -78,6 +78,7 @@ class CaptionTrack(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = "captions"
+    animation: Literal["pop", "none"] = "pop"
     captions: list[Caption] = Field(default_factory=list)
 
 

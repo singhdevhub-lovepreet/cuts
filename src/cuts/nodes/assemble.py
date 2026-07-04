@@ -61,13 +61,16 @@ class AssembleNode(Node):
         self._apply_transitions(clips, context.config)
         captions = self._build_captions(clips, context.words)
         duration = self._timeline_duration(clips)
+        caption_animation = self._normalize_caption_animation(context.config.caption_animation)
         return Timeline(
             target_width=context.target_width,
             target_height=context.target_height,
             target_fps=context.target_fps,
             duration=duration,
             clips=clips,
-            caption_tracks=[CaptionTrack(captions=captions)] if captions else [],
+            caption_tracks=[CaptionTrack(animation=caption_animation, captions=captions)]
+            if captions
+            else [],
             overlay_tracks=[],
             audio=AudioTrack(music_path=context.music_path, ducking=context.music_path is not None),
         )
@@ -259,6 +262,13 @@ class AssembleNode(Node):
             output_offset = clip_start + (clip.source_out - clip.source_in)
         return captions
 
+    def _timeline_duration(self, clips: list[TimelineClip]) -> float:
+        output_offset = 0.0
+        for index, clip in enumerate(clips):
+            clip_start = output_offset if index == 0 else output_offset - clip.transition.duration
+            output_offset = clip_start + (clip.source_out - clip.source_in)
+        return output_offset
+
     def _apply_transitions(self, clips: list[TimelineClip], config: EditorConfig) -> None:
         for clip in clips:
             clip.transition = Transition()
@@ -290,12 +300,11 @@ class AssembleNode(Node):
             return "dip_to_black"
         return "cut"
 
-    def _timeline_duration(self, clips: list[TimelineClip]) -> float:
-        output_offset = 0.0
-        for index, clip in enumerate(clips):
-            clip_start = output_offset if index == 0 else output_offset - clip.transition.duration
-            output_offset = clip_start + (clip.source_out - clip.source_in)
-        return output_offset
+    def _normalize_caption_animation(self, animation: str) -> Literal["pop", "none"]:
+        normalized = animation.strip().lower()
+        if normalized == "none":
+            return "none"
+        return "pop"
 
     def _group_shots(self, shots: list[Shot]) -> dict[str, list[Shot]]:
         grouped: dict[str, list[Shot]] = {}

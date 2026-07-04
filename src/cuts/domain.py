@@ -23,6 +23,7 @@ class EditorConfig:
     assembler_transitions: bool = True
     assembler_transition_kind: str = "crossfade"
     assembler_transition_seconds: float = 0.25
+    caption_animation: str = "pop"
     assembler_waste_penalty: float = 1.0
     assembler_speech_bonus: float = 2.0
     assembler_sharpness_bonus: float = 0.01

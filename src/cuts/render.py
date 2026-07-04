@@ -228,7 +228,8 @@ class Renderer:
     def _write_subtitles(self, timeline: Timeline, work_dir: Path) -> Path | None:
         captions: list[Caption] = []
         for track in timeline.caption_tracks:
-            captions.extend(track.captions)
+            for caption in track.captions:
+                captions.append(caption)
         if not captions:
             return None
         path = work_dir / "captions.ass"
@@ -255,15 +256,23 @@ class Renderer:
             "[Events]",
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
         ]
-        for caption in captions:
-            dialogue = (
-                f"Dialogue: 0,{self._ass_time(caption.start)},"
-                f"{self._ass_time(caption.end)},Default,,0,0,0,,"
-                f"{self._escape_ass_text(caption.text)}"
-            )
-            lines.append(dialogue)
+        for track in timeline.caption_tracks:
+            for caption in track.captions:
+                text = self._caption_text(caption.text, track.animation)
+                dialogue = (
+                    f"Dialogue: 0,{self._ass_time(caption.start)},"
+                    f"{self._ass_time(caption.end)},Default,,0,0,0,,"
+                    f"{text}"
+                )
+                lines.append(dialogue)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
+
+    def _caption_text(self, text: str, animation: str) -> str:
+        escaped_text = self._escape_ass_text(text)
+        if animation != "pop":
+            return escaped_text
+        return r"{\fscx120\fscy120\fad(50,0)\t(0,150,\fscx100\fscy100)}" + escaped_text
 
     def _timeline_duration(self, timeline: Timeline) -> float:
         if timeline.duration is not None:

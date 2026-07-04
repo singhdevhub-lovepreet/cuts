@@ -54,6 +54,71 @@ def test_ffmpeg_command_construction_includes_ducking_and_subtitles() -> None:
     assert "-map [vout] -map [aout]" in command
 
 
+def test_subtitles_include_pop_animation_by_default() -> None:
+    timeline = Timeline(
+        clips=[
+            TimelineClip(
+                source_clip_id="clip-1",
+                source_path=Path("clip1.mp4"),
+                source_in=0.0,
+                source_out=1.0,
+            )
+        ],
+        caption_tracks=[
+            CaptionTrack(
+                captions=[
+                    Caption(
+                        source_clip_id="clip-1",
+                        start=0.0,
+                        end=1.0,
+                        text="hello {world}",
+                    )
+                ]
+            )
+        ],
+        audio=AudioTrack(),
+    )
+    plan = build_ffmpeg_plan(timeline, Path("out.mp4"), work_dir=Path("/tmp"))
+    assert plan.subtitles_path is not None
+    subtitles = plan.subtitles_path.read_text(encoding="utf-8")
+    assert r"\t(" in subtitles
+    assert r"\fscx" in subtitles
+    assert r"{\fscx120\fscy120\fad(50,0)\t(0,150,\fscx100\fscy100)}hello \{world\}" in subtitles
+
+
+def test_subtitles_can_disable_animation() -> None:
+    timeline = Timeline(
+        clips=[
+            TimelineClip(
+                source_clip_id="clip-1",
+                source_path=Path("clip1.mp4"),
+                source_in=0.0,
+                source_out=1.0,
+            )
+        ],
+        caption_tracks=[
+            CaptionTrack(
+                animation="none",
+                captions=[
+                    Caption(
+                        source_clip_id="clip-1",
+                        start=0.0,
+                        end=1.0,
+                        text="hello {world}",
+                    )
+                ],
+            )
+        ],
+        audio=AudioTrack(),
+    )
+    plan = build_ffmpeg_plan(timeline, Path("out.mp4"), work_dir=Path("/tmp"))
+    assert plan.subtitles_path is not None
+    subtitles = plan.subtitles_path.read_text(encoding="utf-8")
+    assert r"\t(" not in subtitles
+    assert r"\fscx" not in subtitles
+    assert r"hello \{world\}" in subtitles
+
+
 def test_ffmpeg_filter_uses_concat_when_all_transitions_are_cuts() -> None:
     timeline = Timeline(
         clips=[

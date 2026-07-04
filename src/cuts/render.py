@@ -272,7 +272,7 @@ class Renderer:
         escaped_text = self._escape_ass_text(text)
         if animation != "pop":
             return escaped_text
-        return r"{\fad(50,0)\t(0,150,\fscx120\fscy120)\t(0,150,\fscx100\fscy100)}" + escaped_text
+        return r"{\fscx120\fscy120\fad(50,0)\t(0,150,\fscx100\fscy100)}" + escaped_text
 
     def _timeline_duration(self, timeline: Timeline) -> float:
         if timeline.duration is not None:

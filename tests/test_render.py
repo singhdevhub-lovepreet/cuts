@@ -83,10 +83,7 @@ def test_subtitles_include_pop_animation_by_default() -> None:
     subtitles = plan.subtitles_path.read_text(encoding="utf-8")
     assert r"\t(" in subtitles
     assert r"\fscx" in subtitles
-    assert (
-        r"{\fad(50,0)\t(0,150,\fscx120\fscy120)\t(0,150,\fscx100\fscy100)}hello \{world\}"
-        in subtitles
-    )
+    assert r"{\fscx120\fscy120\fad(50,0)\t(0,150,\fscx100\fscy100)}hello \{world\}" in subtitles
 
 
 def test_subtitles_can_disable_animation() -> None:

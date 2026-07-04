@@ -14,5 +14,6 @@ assembler_beat_snap_max_seconds = 1.0
 assembler_transitions = true
 assembler_transition_kind = "crossfade"
 assembler_transition_seconds = 0.25
+caption_animation = "pop"
 assembler_waste_penalty = 1.0
 assembler_speech_bonus = 2.0

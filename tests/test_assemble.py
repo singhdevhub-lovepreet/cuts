@@ -64,6 +64,7 @@ def test_assemble_is_deterministic_and_prefers_speech() -> None:
     assert timeline.caption_tracks[0].captions[0].text == "hello"
     assert timeline.caption_tracks[0].captions[0].start == pytest.approx(0.2)
     assert timeline.caption_tracks[0].captions[0].end == pytest.approx(0.5)
+    assert timeline.caption_tracks[0].animation == "pop"
     assert timeline.duration == 3.0
 
 

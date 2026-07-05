@@ -31,3 +31,7 @@ work/
 samples/
 *.mp3
 *.ogg
+
+# Demo/check-in recordings are intentionally tracked
+!tests/demos/
+!tests/demos/**

@@ -1,80 +1,55 @@
-# cuts
+# JobPilot
 
-`cuts` is a deterministic, EDL-centric Phase 0 short-video editor.
+Async AI agent that applies to jobs for US candidates: upload a resume, refine
+your persona (including a voice interview), get a ranked job feed, and — on the
+Pro plan — let the agent auto-apply with a tailored cover letter and resume.
 
-It ingests raw phone/camera clips, analyzes them through a node graph, emits a JSON Edit Decision List (EDL), and separately renders that EDL with ffmpeg.
+## Monorepo layout
 
-Phase 0 is **deterministic only**:
-- no LLMs
-- no VLMs
-- no network calls
-- no randomness
+```
+apps/web       Next.js 16 frontend (Apple-style light-first design)
+apps/api       FastAPI backend (REST /api/v1, SSE progress)
+apps/workers   arq background workers (parse, enrich, scrape, match, auto-apply)
+packages/shared  Cross-app contracts (OpenAPI-generated TS client)
+```
 
-Later phases can add an AI editorial brain, but the EDL remains the contract.
-
-## Install
-
-System dependency:
-- `ffmpeg` (includes `ffprobe`)
-
-Python:
+## Local development
 
 ```bash
-pip install -e .[dev]
+docker compose up -d          # Postgres (pgvector) + Redis
+
+# API
+cd apps/api
+python -m venv .venv && . .venv/bin/activate
+pip install -e '.[dev]'
+uvicorn app.main:app --reload --port 8000
+
+# Workers
+cd apps/workers
+pip install -e '.[dev]'
+arq workers.main.WorkerSettings
+
+# Web
+cd apps/web
+npm install
+npm run dev                   # http://localhost:3000
 ```
 
-Optional analysis/render extras are declared in the code as lazy imports so the CLI help and tests remain usable without them installed.
+Copy `apps/api/.env.example` to `apps/api/.env`. Provider keys are dummy
+values in development.
 
-## Usage
+## Checks
 
-Analyze clips into an EDL:
+- API/workers: `ruff check . && ruff format --check .`, `mypy .`, `pytest -q`
+- Web: `npm run lint`, `npx tsc --noEmit`, `npm run build`
 
-```bash
-cuts analyze clip1.mp4 clip2.mov --output edl.json
-```
+## Roadmap (milestones)
 
-Render an EDL into a final MP4:
-
-```bash
-cuts render edl.json --output final.mp4
-```
-
-End-to-end:
-
-```bash
-cuts run clip1.mp4 clip2.mov --output final.mp4
-```
-
-Optional music and a target duration:
-
-```bash
-cuts run clip1.mp4 clip2.mov   --music music.mp3   --target-duration 45   --output final.mp4
-```
-
-## Architecture
-
-```text
-raw clips
-   │
-   ▼
-[ ingest ] ──► [ shots ] ──► [ motion ] ──► [ silence ] ──► [ assemble ] ──► EDL JSON
-      │              │              │             │
-      ├──────────────┼──────────────┼─────────────┤
-      ▼              ▼              ▼             ▼
-  clip metadata   scene cuts     waste scores   speech regions
-
-optional branches:
-- [ transcribe ] → word timestamps → captions in the EDL
-- [ beats ]      → beat grid       → beat-snapped cuts
-
-EDL JSON
-   │
-   ▼
-[ render ] ──► ffmpeg ──► final MP4
-```
-
-## Notes
-
-- The pipeline is deterministic by design; the same inputs produce the same EDL and render command.
-- The renderer currently center-crops to 9:16 and leaves a hook for subject-aware reframing later.
-- AI-driven editorial phases can plug in as additional nodes without changing the EDL contract.
+1. Scaffold (this) — monorepo, design tokens, CI, compose
+2. Google auth + resume upload + parse -> persona draft
+3. Persona editor + persona events
+4. Job sources (Greenhouse/Lever/Ashby) + matcher + feed UI
+5. CRM dashboard (kanban, application detail, interviews)
+6. Voice enrichment (Sarvam STT/TTS interviewer)
+7. Auto-apply agent (Greenhouse/Lever adapters behind a reusable ATS interface)
+8. Billing (Dodo Payments) + plan gating + landing/pricing

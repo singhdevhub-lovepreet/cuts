@@ -1,6 +1,6 @@
+# Python
 __pycache__/
 *.py[cod]
-*.so
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -11,27 +11,15 @@ build/
 *.egg-info/
 .coverage
 htmlcov/
-.DS_Store
-*.mp4
-*.mov
-*.mkv
-*.webm
-*.avi
-*.wav
-*.flac
-*.aac
-*.m4a
-*.ass
-*.srt
-*.vtt
-*.log
-outputs/
-renders/
-work/
-samples/
-*.mp3
-*.ogg
 
-# Demo/check-in recordings are intentionally tracked
-!tests/demos/
-!tests/demos/**
+# Node / Next.js
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Env & misc
+.env
+.env.local
+*.log
+.DS_Store

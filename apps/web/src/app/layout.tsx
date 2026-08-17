@@ -13,7 +13,11 @@ export const metadata: Metadata = {
     "Upload your resume, refine your persona, and let the agent find and apply to jobs for you.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>
